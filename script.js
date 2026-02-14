@@ -23,16 +23,6 @@ document.getElementById("container").addEventListener("click", () => {
   }
 });
 
-// ─── Log de diagnostic affiché à l'écran ─────────────────────────────────────
-
-function log(msg) {
-  console.log(msg);
-  const el = document.getElementById("debug-log");
-  if (el) {
-    el.textContent = msg + "\n" + el.textContent;
-  }
-}
-
 // ─── Détection du shake avec fallback sur acceleration (sans gravité) ─────────
 
 function detectShake(event) {
@@ -48,7 +38,7 @@ function detectShake(event) {
 
   // Log des données brutes au premier événement et tous les 20 événements
   if (eventCount <= 3 || eventCount % 20 === 0) {
-    log(
+    console.log(
       `[#${eventCount}] aIG: ${JSON.stringify({
         x: event.accelerationIncludingGravity?.x,
         y: event.accelerationIncludingGravity?.y,
@@ -62,7 +52,8 @@ function detectShake(event) {
   }
 
   if (!current) {
-    if (eventCount <= 3) log("⚠️ Aucune donnée d'accélération disponible");
+    if (eventCount <= 3)
+      console.log("⚠️ Aucune donnée d'accélération disponible");
     return;
   }
 
@@ -79,7 +70,7 @@ function detectShake(event) {
     const speed =
       (Math.abs(x + y + z - lastX - lastY - lastZ) / timeDiff) * 10000;
 
-    if (eventCount % 20 === 0) log(`Speed: ${speed.toFixed(1)}`);
+    if (eventCount % 20 === 0) console.log(`Speed: ${speed.toFixed(1)}`);
 
     if (speed > SHAKE_THRESHOLD) {
       handleShake();
@@ -103,15 +94,15 @@ function isIOS() {
 // ─── Activation ───────────────────────────────────────────────────────────────
 
 function startListening() {
-  log("🎧 Démarrage écoute devicemotion...");
+  console.log("🎧 Démarrage écoute devicemotion...");
 
   // Test rapide : est-ce que l'événement se déclenche du tout ?
   const testListener = (e) => {
-    log(`✅ devicemotion reçu ! interval=${e.interval}`);
-    log(
+    console.log(`✅ devicemotion reçu ! interval=${e.interval}`);
+    console.log(
       `   accelerationIncludingGravity: x=${e.accelerationIncludingGravity?.x}`,
     );
-    log(`   acceleration: x=${e.acceleration?.x}`);
+    console.log(`   acceleration: x=${e.acceleration?.x}`);
     window.removeEventListener("devicemotion", testListener);
   };
   window.addEventListener("devicemotion", testListener);
@@ -119,18 +110,20 @@ function startListening() {
   setTimeout(() => {
     window.addEventListener("devicemotion", detectShake);
     isListening = true;
-    log("✅ Détection active");
+    console.log("✅ Détection active");
   }, 200);
 }
 
 document.getElementById("activateBtn").addEventListener("click", async () => {
-  log("👆 Bouton cliqué");
-  log(`UA: ${navigator.userAgent.slice(0, 80)}`);
-  log(`DeviceMotionEvent: ${typeof DeviceMotionEvent}`);
-  log(`requestPermission: ${typeof DeviceMotionEvent?.requestPermission}`);
+  console.log("👆 Bouton cliqué");
+  console.log(`UA: ${navigator.userAgent.slice(0, 80)}`);
+  console.log(`DeviceMotionEvent: ${typeof DeviceMotionEvent}`);
+  console.log(
+    `requestPermission: ${typeof DeviceMotionEvent?.requestPermission}`,
+  );
 
   if (typeof DeviceMotionEvent === "undefined") {
-    log("❌ DeviceMotionEvent non supporté");
+    console.log("❌ DeviceMotionEvent non supporté");
     document.getElementById("popup").style.display = "none";
     document.getElementById("container").style.display = "block";
     return;
@@ -139,14 +132,14 @@ document.getElementById("activateBtn").addEventListener("click", async () => {
   if (isIOS() && typeof DeviceMotionEvent.requestPermission === "function") {
     try {
       const permission = await DeviceMotionEvent.requestPermission();
-      log(`Permission iOS: ${permission}`);
+      console.log(`Permission iOS: ${permission}`);
       if (permission === "granted") {
         startListening();
         document.getElementById("popup").style.display = "none";
         document.getElementById("container").style.display = "block";
       }
     } catch (error) {
-      log(`❌ Erreur iOS: ${error}`);
+      console.log(`❌ Erreur iOS: ${error}`);
     }
   } else {
     // Android + autres
