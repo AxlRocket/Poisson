@@ -132,7 +132,7 @@ body {
   background-image: url("photo.jpeg");
   background-repeat: no-repeat;
   background-size: cover;
-  background-position: -120px 0px;
+  background-position: 0px 0px;
 }
 
 #resa {
