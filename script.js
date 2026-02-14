@@ -3,18 +3,15 @@ let lastTime = 0;
 let lastX = 0,
   lastY = 0,
   lastZ = 0;
-let isListening = false;
-let eventCount = 0;
 
 let tt = 1.0;
 let qq = 0.0;
 
 function handleShake() {
-  console.log("Téléphone secoué !");
-  tt = tt - 0.05;
-  qq = qq + 0.05;
-  if (tt >= 0) document.getElementById("op").style.opacity = tt;
-  if (qq <= 1) document.getElementById("question").style.opacity = qq;
+  tt = Math.max(0, tt - 0.05);
+  qq = Math.min(1, qq + 0.05);
+  document.getElementById("op").style.opacity = tt;
+  document.getElementById("question").style.opacity = qq;
 }
 
 document.getElementById("container").addEventListener("click", () => {
@@ -23,66 +20,123 @@ document.getElementById("container").addEventListener("click", () => {
   }
 });
 
-// ─── Détection du shake avec fallback sur acceleration (sans gravité) ─────────
+// ─── Tentative avec l'API Sensor (plus moderne, meilleur support Android) ─────
 
-function detectShake(event) {
-  eventCount++;
-
-  // Essayer d'abord accelerationIncludingGravity, puis acceleration
-  const current =
-    event.accelerationIncludingGravity?.x != null
-      ? event.accelerationIncludingGravity
-      : event.acceleration?.x != null
-        ? event.acceleration
-        : null;
-
-  // Log des données brutes au premier événement et tous les 20 événements
-  if (eventCount <= 3 || eventCount % 20 === 0) {
-    console.log(
-      `[#${eventCount}] aIG: ${JSON.stringify({
-        x: event.accelerationIncludingGravity?.x,
-        y: event.accelerationIncludingGravity?.y,
-        z: event.accelerationIncludingGravity?.z,
-      })} | a: ${JSON.stringify({
-        x: event.acceleration?.x,
-        y: event.acceleration?.y,
-        z: event.acceleration?.z,
-      })} | interval: ${event.interval}`,
-    );
-  }
-
-  if (!current) {
-    if (eventCount <= 3)
-      console.log("⚠️ Aucune donnée d'accélération disponible");
+function tryModernSensor() {
+  if (typeof Accelerometer === "undefined") {
+    console.log("⚠️ Accelerometer API non disponible, fallback devicemotion");
+    startDeviceMotion();
     return;
   }
 
-  const currentTime = Date.now();
+  try {
+    console.log("🔬 Tentative Accelerometer API...");
+    const sensor = new Accelerometer({ frequency: 30 });
 
-  if (currentTime - lastTime > 100) {
-    const timeDiff = currentTime - lastTime;
-    lastTime = currentTime;
+    sensor.addEventListener("error", (e) => {
+      console.log(
+        `❌ Accelerometer erreur: ${e.error.name} - ${e.error.message}`,
+      );
+      console.log("→ Fallback sur devicemotion");
+      startDeviceMotion();
+    });
 
-    const x = current.x ?? 0;
-    const y = current.y ?? 0;
-    const z = current.z ?? 0;
+    sensor.addEventListener("reading", () => {
+      const currentTime = Date.now();
+      if (currentTime - lastTime > 100) {
+        const timeDiff = currentTime - lastTime || 1;
+        lastTime = currentTime;
 
-    const speed =
-      (Math.abs(x + y + z - lastX - lastY - lastZ) / timeDiff) * 10000;
+        const x = sensor.x ?? 0;
+        const y = sensor.y ?? 0;
+        const z = sensor.z ?? 0;
 
-    if (eventCount % 20 === 0) console.log(`Speed: ${speed.toFixed(1)}`);
+        const speed =
+          (Math.abs(x + y + z - lastX - lastY - lastZ) / timeDiff) * 10000;
 
-    if (speed > SHAKE_THRESHOLD) {
-      handleShake();
-    }
+        if (speed > SHAKE_THRESHOLD) handleShake();
 
-    lastX = x;
-    lastY = y;
-    lastZ = z;
+        lastX = x;
+        lastY = y;
+        lastZ = z;
+      }
+    });
+
+    sensor.start();
+    console.log("✅ Accelerometer API démarré");
+  } catch (err) {
+    console.log(`❌ Accelerometer exception: ${err.name} - ${err.message}`);
+    startDeviceMotion();
   }
 }
 
-// ─── Détection plateforme ─────────────────────────────────────────────────────
+// ─── Fallback classique devicemotion ─────────────────────────────────────────
+
+function startDeviceMotion() {
+  let eventCount = 0;
+
+  window.addEventListener("devicemotion", (event) => {
+    eventCount++;
+
+    // Chercher une source de données valide
+    let current = null;
+    if (event.accelerationIncludingGravity?.x != null) {
+      current = event.accelerationIncludingGravity;
+    } else if (event.acceleration?.x != null) {
+      current = event.acceleration;
+    }
+
+    if (eventCount <= 5) {
+      console.log(
+        `[devicemotion #${eventCount}] aIG.x=${event.accelerationIncludingGravity?.x} a.x=${event.acceleration?.x}`,
+      );
+    }
+
+    if (!current) return;
+
+    const currentTime = Date.now();
+    if (currentTime - lastTime > 100) {
+      const timeDiff = currentTime - lastTime || 1;
+      lastTime = currentTime;
+
+      const x = current.x ?? 0;
+      const y = current.y ?? 0;
+      const z = current.z ?? 0;
+
+      const speed =
+        (Math.abs(x + y + z - lastX - lastY - lastZ) / timeDiff) * 10000;
+
+      if (speed > SHAKE_THRESHOLD) handleShake();
+
+      lastX = x;
+      lastY = y;
+      lastZ = z;
+    }
+  });
+
+  console.log("✅ devicemotion écouté");
+}
+
+// ─── Vérification permission via Permissions API ──────────────────────────────
+
+async function checkSensorPermission() {
+  if (!navigator.permissions) {
+    console.log("ℹ️ Permissions API non disponible");
+    return null;
+  }
+
+  try {
+    const result = await navigator.permissions.query({ name: "accelerometer" });
+    console.log(`🔐 Permission accelerometer: ${result.state}`);
+    // "granted" | "denied" | "prompt"
+    return result.state;
+  } catch (e) {
+    console.log(`ℹ️ Permissions.query non supporté: ${e.message}`);
+    return null;
+  }
+}
+
+// ─── Point d'entrée ───────────────────────────────────────────────────────────
 
 function isIOS() {
   return (
@@ -91,60 +145,40 @@ function isIOS() {
   );
 }
 
-// ─── Activation ───────────────────────────────────────────────────────────────
-
-function startListening() {
-  console.log("🎧 Démarrage écoute devicemotion...");
-
-  // Test rapide : est-ce que l'événement se déclenche du tout ?
-  const testListener = (e) => {
-    console.log(`✅ devicemotion reçu ! interval=${e.interval}`);
-    console.log(
-      `   accelerationIncludingGravity: x=${e.accelerationIncludingGravity?.x}`,
-    );
-    console.log(`   acceleration: x=${e.acceleration?.x}`);
-    window.removeEventListener("devicemotion", testListener);
-  };
-  window.addEventListener("devicemotion", testListener);
-
-  setTimeout(() => {
-    window.addEventListener("devicemotion", detectShake);
-    isListening = true;
-    console.log("✅ Détection active");
-  }, 200);
-}
-
 document.getElementById("activateBtn").addEventListener("click", async () => {
-  console.log("👆 Bouton cliqué");
-  console.log(`UA: ${navigator.userAgent.slice(0, 80)}`);
-  console.log(`DeviceMotionEvent: ${typeof DeviceMotionEvent}`);
   console.log(
-    `requestPermission: ${typeof DeviceMotionEvent?.requestPermission}`,
+    `Chrome: ${/Chrome\/(\d+)/.exec(navigator.userAgent)?.[1] ?? "?"}`,
   );
 
-  if (typeof DeviceMotionEvent === "undefined") {
-    console.log("❌ DeviceMotionEvent non supporté");
-    document.getElementById("popup").style.display = "none";
-    document.getElementById("container").style.display = "block";
+  document.getElementById("popup").style.display = "none";
+  document.getElementById("container").style.display = "block";
+
+  if (isIOS() && typeof DeviceMotionEvent.requestPermission === "function") {
+    // iOS 13+
+    const permission = await DeviceMotionEvent.requestPermission().catch(
+      (e) => {
+        console.log(`❌ iOS permission erreur: ${e}`);
+        return "denied";
+      },
+    );
+    console.log(`Permission iOS: ${permission}`);
+    if (permission === "granted") startDeviceMotion();
     return;
   }
 
-  if (isIOS() && typeof DeviceMotionEvent.requestPermission === "function") {
-    try {
-      const permission = await DeviceMotionEvent.requestPermission();
-      console.log(`Permission iOS: ${permission}`);
-      if (permission === "granted") {
-        startListening();
-        document.getElementById("popup").style.display = "none";
-        document.getElementById("container").style.display = "block";
-      }
-    } catch (error) {
-      console.log(`❌ Erreur iOS: ${error}`);
-    }
-  } else {
-    // Android + autres
-    startListening();
-    document.getElementById("popup").style.display = "none";
-    document.getElementById("container").style.display = "block";
+  // Android / autres
+  const permState = await checkSensorPermission();
+
+  if (permState === "denied") {
+    console.log(
+      "🚫 Permission refusée — va dans Paramètres Chrome → Paramètres du site → Capteurs de mouvement",
+    );
+    alert(
+      "Permission capteurs refusée.\n\nVa dans : Paramètres Chrome → Paramètres du site → Capteurs de mouvement → Autoriser",
+    );
+    return;
   }
+
+  // "granted", "prompt" ou null → on tente
+  tryModernSensor();
 });
