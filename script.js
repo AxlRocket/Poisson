@@ -4,17 +4,15 @@ let lastX = 0,
   lastY = 0,
   lastZ = 0;
 let isListening = false;
+let eventCount = 0;
 
 let tt = 1.0;
 let qq = 0.0;
-
-//document.getElementById("test").addEventListener("click", handleShake);
 
 function handleShake() {
   console.log("Téléphone secoué !");
   tt = tt - 0.05;
   qq = qq + 0.05;
-
   if (tt >= 0) document.getElementById("op").style.opacity = tt;
   if (qq <= 1) document.getElementById("question").style.opacity = qq;
 }
@@ -23,35 +21,65 @@ document.getElementById("container").addEventListener("click", () => {
   if (tt <= 0.15) {
     document.getElementById("container").classList.toggle("flipped");
   }
-  //document.getElementById("container").classList.toggle("flipped");
 });
 
-function detectShake(event) {
-  const current = event.accelerationIncludingGravity;
+// ─── Log de diagnostic affiché à l'écran ─────────────────────────────────────
 
-  // Vérifier que les données sont valides
-  if (
-    !current ||
-    (current.x === null && current.y === null && current.z === null)
-  ) {
-    console.log("Pas de données d'accélération");
+function log(msg) {
+  console.log(msg);
+  const el = document.getElementById("debug-log");
+  if (el) {
+    el.textContent = msg + "\n" + el.textContent;
+  }
+}
+
+// ─── Détection du shake avec fallback sur acceleration (sans gravité) ─────────
+
+function detectShake(event) {
+  eventCount++;
+
+  // Essayer d'abord accelerationIncludingGravity, puis acceleration
+  const current =
+    event.accelerationIncludingGravity?.x != null
+      ? event.accelerationIncludingGravity
+      : event.acceleration?.x != null
+        ? event.acceleration
+        : null;
+
+  // Log des données brutes au premier événement et tous les 20 événements
+  if (eventCount <= 3 || eventCount % 20 === 0) {
+    log(
+      `[#${eventCount}] aIG: ${JSON.stringify({
+        x: event.accelerationIncludingGravity?.x,
+        y: event.accelerationIncludingGravity?.y,
+        z: event.accelerationIncludingGravity?.z,
+      })} | a: ${JSON.stringify({
+        x: event.acceleration?.x,
+        y: event.acceleration?.y,
+        z: event.acceleration?.z,
+      })} | interval: ${event.interval}`,
+    );
+  }
+
+  if (!current) {
+    if (eventCount <= 3) log("⚠️ Aucune donnée d'accélération disponible");
     return;
   }
 
-  const currentTime = new Date().getTime();
+  const currentTime = Date.now();
 
   if (currentTime - lastTime > 100) {
     const timeDiff = currentTime - lastTime;
     lastTime = currentTime;
 
-    const x = current.x || 0;
-    const y = current.y || 0;
-    const z = current.z || 0;
+    const x = current.x ?? 0;
+    const y = current.y ?? 0;
+    const z = current.z ?? 0;
 
     const speed =
       (Math.abs(x + y + z - lastX - lastY - lastZ) / timeDiff) * 10000;
 
-    console.log("Speed:", speed); // Pour déboguer
+    if (eventCount % 20 === 0) log(`Speed: ${speed.toFixed(1)}`);
 
     if (speed > SHAKE_THRESHOLD) {
       handleShake();
@@ -63,28 +91,67 @@ function detectShake(event) {
   }
 }
 
-// Fonction pour "réveiller" les capteurs
-function wakeUpSensors() {
-  console.log("Réveil des capteurs...");
-  // Créer un faux événement tactile pour réveiller les capteurs
-  const dummyListener = (e) => {
-    console.log("Capteur réveillé", e.accelerationIncludingGravity);
+// ─── Détection plateforme ─────────────────────────────────────────────────────
+
+function isIOS() {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+// ─── Activation ───────────────────────────────────────────────────────────────
+
+function startListening() {
+  log("🎧 Démarrage écoute devicemotion...");
+
+  // Test rapide : est-ce que l'événement se déclenche du tout ?
+  const testListener = (e) => {
+    log(`✅ devicemotion reçu ! interval=${e.interval}`);
+    log(
+      `   accelerationIncludingGravity: x=${e.accelerationIncludingGravity?.x}`,
+    );
+    log(`   acceleration: x=${e.acceleration?.x}`);
+    window.removeEventListener("devicemotion", testListener);
   };
+  window.addEventListener("devicemotion", testListener);
 
-  window.addEventListener("devicemotion", dummyListener, { once: true });
-
-  // Attendre un peu puis activer le vrai listener
   setTimeout(() => {
-    window.removeEventListener("devicemotion", dummyListener);
     window.addEventListener("devicemotion", detectShake);
     isListening = true;
-    console.log("Détection active");
-  }, 100);
+    log("✅ Détection active");
+  }, 200);
 }
 
 document.getElementById("activateBtn").addEventListener("click", async () => {
-  console.log("Bouton cliqué");
-  wakeUpSensors(); // Utiliser la fonction de réveil
-  document.getElementById("popup").style.display = "none";
-  document.getElementById("container").style.display = "block";
+  log("👆 Bouton cliqué");
+  log(`UA: ${navigator.userAgent.slice(0, 80)}`);
+  log(`DeviceMotionEvent: ${typeof DeviceMotionEvent}`);
+  log(`requestPermission: ${typeof DeviceMotionEvent?.requestPermission}`);
+
+  if (typeof DeviceMotionEvent === "undefined") {
+    log("❌ DeviceMotionEvent non supporté");
+    document.getElementById("popup").style.display = "none";
+    document.getElementById("container").style.display = "block";
+    return;
+  }
+
+  if (isIOS() && typeof DeviceMotionEvent.requestPermission === "function") {
+    try {
+      const permission = await DeviceMotionEvent.requestPermission();
+      log(`Permission iOS: ${permission}`);
+      if (permission === "granted") {
+        startListening();
+        document.getElementById("popup").style.display = "none";
+        document.getElementById("container").style.display = "block";
+      }
+    } catch (error) {
+      log(`❌ Erreur iOS: ${error}`);
+    }
+  } else {
+    // Android + autres
+    startListening();
+    document.getElementById("popup").style.display = "none";
+    document.getElementById("container").style.display = "block";
+  }
 });
